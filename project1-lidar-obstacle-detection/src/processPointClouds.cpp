@@ -22,7 +22,7 @@ typename pcl::PointCloud<PointT>::Ptr ProcessPointClouds<PointT>::FilterCloud(
     // Time segmentation process
     auto startTime = std::chrono::steady_clock::now();
 
-    // voxel grid point reduction and region based filtering
+    // voxel grid point reduction
     typename pcl::PointCloud<PointT>::Ptr filtered_cloud(
         new pcl::PointCloud<PointT>);
     pcl::VoxelGrid<PointT> voxel_grid_filter;
@@ -30,6 +30,7 @@ typename pcl::PointCloud<PointT>::Ptr ProcessPointClouds<PointT>::FilterCloud(
     voxel_grid_filter.setLeafSize(filterRes, filterRes, filterRes);
     voxel_grid_filter.filter(*filtered_cloud);
 
+    // region based filtering
     typename pcl::PointCloud<PointT>::Ptr intrested_cloud(
         new pcl::PointCloud<PointT>);
     pcl::CropBox<PointT> intrested_region_filter;
@@ -38,24 +39,13 @@ typename pcl::PointCloud<PointT>::Ptr ProcessPointClouds<PointT>::FilterCloud(
     intrested_region_filter.setInputCloud(filtered_cloud);
     intrested_region_filter.filter(*intrested_cloud);
 
-    // extract roof noise
-    std::vector<int> roof_indices;
+    // roof noise extraction
     pcl::CropBox<PointT> roof_region_filter(true);
-    intrested_region_filter.setMin({-1.5, -1.7, -1, 1});
-    intrested_region_filter.setMax({2.6, 1.7, -0.4, 1});
+    intrested_region_filter.setMin({-3.0, -3.0, -1.0, -1.0});
+    intrested_region_filter.setMax({3.0, 3.0, 1.0, 1.0});
     intrested_region_filter.setInputCloud(intrested_cloud);
-    intrested_region_filter.filter(roof_indices);
-
-    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
-    for (const int& index : roof_indices) {
-        inliers->indices.push_back(index);
-    }
-
-    pcl::ExtractIndices<PointT> extract;
-    extract.setInputCloud(intrested_cloud);
-    extract.setIndices(inliers);
-    extract.setNegative(true);
-    extract.filter(*intrested_cloud);
+    intrested_region_filter.setNegative(true);
+    intrested_region_filter.filter(*intrested_cloud);
 
     auto endTime = std::chrono::steady_clock::now();
     auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(
