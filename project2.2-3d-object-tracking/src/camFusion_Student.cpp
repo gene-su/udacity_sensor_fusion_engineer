@@ -62,24 +62,6 @@ void clusterLidarWithROI(std::vector<BoundingBox> &boundingBoxes,
         }
 
     }  // eof loop over all Lidar points
-
-    std::vector<double> mean_x(boundingBoxes.size(), 0.0);
-    for (int i = 0; i < boundingBoxes.size(); ++i) {
-        for (const auto &it : boundingBoxes.at(i).lidarPoints) {
-            mean_x.at(i) += it.x;
-        }
-        mean_x.at(i) /= boundingBoxes.at(i).lidarPoints.size();
-    }
-
-    for (int i = 0; i < boundingBoxes.size(); ++i) {
-        std::vector<LidarPoint> lidar_points;
-        for (const auto &it : boundingBoxes.at(i).lidarPoints) {
-            if (0.9 * mean_x.at(i) < it.x && it.x < 1.1 * mean_x.at(i)) {
-                lidar_points.push_back(it);
-            }
-        }
-        boundingBoxes.at(i).lidarPoints = lidar_points;
-    }
 }
 
 /*
@@ -251,15 +233,47 @@ void computeTTCCamera(std::vector<cv::KeyPoint> &kptsPrev,
     TTC = -dT / (1 - medDistRatio);
 }
 
+std::vector<LidarPoint> RemoveOutliers(
+    const std::vector<LidarPoint> &lidar_points) {
+    std::vector<LidarPoint> sorted_lidar_points = lidar_points;
+    std::sort(
+        sorted_lidar_points.begin(), sorted_lidar_points.end(),
+        [&](const LidarPoint &a, const LidarPoint &b) { return a.x < b.x; });
+
+    // 1.5 IQR rule
+    int q1 = lidar_points.size() / 4;
+    int q2 = lidar_points.size() / 4 * 2;
+    int q3 = lidar_points.size() / 4 * 3;    
+    int iqr =
+        std::abs(sorted_lidar_points.at(q3).x - sorted_lidar_points.at(q1).x);
+
+    std::vector<LidarPoint> lidar_points_without_outliers;
+    for (const auto &it : sorted_lidar_points) {
+        if (it.x > sorted_lidar_points.at(q1).x - 1.5 * iqr &&
+            it.x < sorted_lidar_points.at(q3).x + 1.5 * iqr) {
+            lidar_points_without_outliers.push_back(it);
+        }
+    }
+
+    return lidar_points_without_outliers;
+}
+
 void computeTTCLidar(std::vector<LidarPoint> &lidarPointsPrev,
                      std::vector<LidarPoint> &lidarPointsCurr, double frameRate,
                      double &TTC) {
+    /* remove outliers */
+    std::vector<LidarPoint> prev_lidar_points_without_outliers =
+        RemoveOutliers(lidarPointsPrev);
+    std::vector<LidarPoint> curr_lidar_points_without_outliers =
+        RemoveOutliers(lidarPointsCurr);
+
     // auxiliary variables
     double laneWidth = 4.0;  // assumed width of the ego lane
 
     // find closest distance to Lidar points within ego lane
     double minXPrev = 1e9, minXCurr = 1e9;
-    for (auto it = lidarPointsPrev.begin(); it != lidarPointsPrev.end(); ++it) {
+    for (auto it = prev_lidar_points_without_outliers.begin();
+         it != prev_lidar_points_without_outliers.end(); ++it) {
         if (it->y > laneWidth / 2. || it->y < -laneWidth / 2.) {
             continue;
         }
@@ -270,7 +284,8 @@ void computeTTCLidar(std::vector<LidarPoint> &lidarPointsPrev,
         }
         // minXPrev = minXPrev > it->x ? it->x : minXPrev;
     }
-    for (auto it = lidarPointsCurr.begin(); it != lidarPointsCurr.end(); ++it) {
+    for (auto it = curr_lidar_points_without_outliers.begin();
+         it != curr_lidar_points_without_outliers.end(); ++it) {
         if (it->y > laneWidth / 2. || it->y < -laneWidth / 2.) {
             continue;
         }
